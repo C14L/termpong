@@ -1,15 +1,9 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_mut)]
-
 // TODO: Change ball angle when ball hits corner of player
 // TODO: Change ball angle when player moves while hitting the ball
 // TODO: Allow players to move forwards and backwards
 
-extern crate itertools;
-
 use std::str;
-use rand::{prelude::ThreadRng, Rng};
+use rand::Rng;
 use std::io::{stdout, Write};
 use std::time;
 use crossterm::{
@@ -29,7 +23,6 @@ const YMAX: u16 = 24;
 const GAME_TICK_MILLIS: u64 = 10;
 const FIELD_SIZE: u16 = XMAX * YMAX;
 const PIXEL_EMPTY: u8 = b' ';
-const PIXEL_SOLID: u8 = b'X';
 
 struct Thing {
     xpos: u16,
@@ -43,9 +36,6 @@ struct Thing {
 }
 
 impl Thing {
-    fn get_pos_idx(self: &Self) -> usize {
-        (self.xpos + self.ypos * XMAX) as usize
-    }
     fn get_ymin(self: &Self) -> u16 {
         self.ypos
     }
@@ -100,9 +90,6 @@ impl Field {
     }
     fn get_idx(self: &Self, x: &u16, y: &u16) -> usize {
         (x + y * XMAX) as usize
-    }
-    fn set_pixel(self: &mut Self, x: u16, y: u16) {
-        self.curr[self.get_idx(&x, &y)] = PIXEL_SOLID;
     }
     fn draw_thing(self: &mut Self, thing: &Thing) {
         let x = thing.xpos;
