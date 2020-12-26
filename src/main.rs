@@ -2,9 +2,13 @@
 #![allow(unused_variables)]
 #![allow(unused_mut)]
 
+// TODO: Change ball angle when ball hits corner of player
+// TODO: Change ball angle when player moves while hitting the ball
+// TODO: Allow players to move forwards and backwards
+
 extern crate itertools;
 
-//use itertools::join;
+use std::str;
 use rand::{prelude::ThreadRng, Rng};
 use std::io::{stdout, Write};
 use std::time;
@@ -102,9 +106,13 @@ impl Field {
     }
     fn draw_thing(self: &mut Self, thing: &Thing) {
         let x = thing.xpos;
-        for y in thing.ypos..(thing.ypos+thing.size) {
+        for y in thing.get_ymin()..thing.get_ymax() {
             self.curr[self.get_idx(&x, &y)] = thing.pixel;
         }
+    }
+    fn write(self: &mut Self, x: u16, y: u16, text: &str) {
+       let i = self.get_idx(&x, &y);
+       text.as_bytes().iter().enumerate().for_each(|(j, c)| { self.curr[i+j] = *c; });
     }
 }
 
@@ -114,17 +122,23 @@ fn main() -> CrosstermResult<()> {
 
     let mut tick_counter: usize = 0;
     let mut game_tick: time::Duration;
-    let tick_threshold: usize = 5;
+    let tick_threshold: usize = 2;
 
     let mut is_paused: bool = false;
     let mut move_things: bool;
     let mut init_ball: bool = false;
-    let mut round_winner: u8 = 0;
+    let mut round_winner: usize = 0;
+    let mut score: [usize; 2] = [0, 0];
+    let mut ball_step: f32 = 0.5;
+    let mut rand_angle: f32;
 
     let mut field: Field = Field::new();
     let mut ball = Thing::new(XMAX / 2, YMAX / 2, 1, b'O');
-    let mut player1 = Thing::new(XMIN + 5, (YMAX - YMIN) / 2, 4, b'X');
-    let mut player2 = Thing::new(XMAX - 5, (YMAX - YMIN) / 2, 4, b'X');
+    let mut player1 = Thing::new(XMIN + 5, (YMAX - YMIN) / 2 - 1, 4, b'X');
+    let mut player2 = Thing::new(XMAX - 5, (YMAX - YMIN) / 2 - 1, 4, b'X');
+    let mut debugstr: String = String::from("debug on");
+    let mut show_debug: bool = false;
+    let mut show_help: bool = false;
 
     // Init terminal
 
@@ -149,30 +163,71 @@ fn main() -> CrosstermResult<()> {
             if event == Event::Key(KeyCode::Esc.into()) {
                 break 'gameloop;
             }
+
+            if event == Event::Key(KeyCode::Char('h').into()) {
+                show_help = !show_help;
+            }
+            if event == Event::Key(KeyCode::Char('d').into()) {
+                show_debug = !show_debug;
+            }
+
+            if !init_ball {
+                if event == Event::Key(KeyCode::Char('9').into()) {
+                    ball_step = 0.9;
+                } else if event == Event::Key(KeyCode::Char('8').into()) {
+                    ball_step = 0.8;
+                } else if event == Event::Key(KeyCode::Char('7').into()) {
+                    ball_step = 0.7;
+                } else if event == Event::Key(KeyCode::Char('6').into()) {
+                    ball_step = 0.6;
+                } else if event == Event::Key(KeyCode::Char('5').into()) {
+                    ball_step = 0.5;
+                } else if event == Event::Key(KeyCode::Char('4').into()) {
+                    ball_step = 0.4;
+                } else if event == Event::Key(KeyCode::Char('3').into()) {
+                    ball_step = 0.3;
+                } else if event == Event::Key(KeyCode::Char('2').into()) {
+                    ball_step = 0.2;
+                } else if event == Event::Key(KeyCode::Char('1').into()) {
+                    ball_step = 0.1;
+                }
+            }
+
             if event == Event::Key(KeyCode::Char('p').into()) {
                 is_paused = !is_paused;
             }
-            if event == Event::Key(KeyCode::Char(' ').into()) && !init_ball {
-                // init ball
-                init_ball = true;
-                ball.xmov = 0.7;
-                ball.ymov = -0.3;
+
+            if event == Event::Key(KeyCode::Char(' ').into()) {
+                if init_ball {
+                    init_ball = false;
+                    ball = Thing::new(XMAX / 2, YMAX / 2, 1, b'O');
+                } else {
+                    init_ball = true;
+                    rand_angle = rng.gen_range(-45, 45) as f32;
+                    ball.xmov = rand_angle.cos() * ball_step;
+                    ball.ymov = rand_angle.sin() * ball_step;
+                    debugstr = format!("angle={:02} x={:.03} y={:.03}", rand_angle, ball.xmov, ball.ymov);
+                }
             }
+
             if event == Event::Key(KeyCode::Char('a').into()) {
                 if player1.get_ymin() > YMIN + 1 { player1.ypos -= 1; }
             }
+
             if event == Event::Key(KeyCode::Char('z').into()) {
                 if player1.get_ymax() < YMAX - 1 { player1.ypos += 1; }
             }
+
             if event == Event::Key(KeyCode::Char('k').into()) {
                 if player2.get_ymin() > YMIN + 1 { player2.ypos -= 1; }
             }
+
             if event == Event::Key(KeyCode::Char('m').into()) {
                 if player2.get_ymax() < YMAX - 1 { player2.ypos += 1; }
             }
         }
 
-        // Move ball
+        // Move ball and find bounces
 
         if init_ball {
             ball.xf32 += ball.xmov;
@@ -181,14 +236,37 @@ fn main() -> CrosstermResult<()> {
             ball.xpos = ball.xf32 as u16;
             ball.ypos = ball.yf32 as u16;
 
+            // with walls
+
             if ball.xpos >= XMAX {
                 round_winner = 1;
             }
             if ball.xpos <= XMIN {
                 round_winner = 2;
             }
-            if ball.get_ymin() <= XMIN || ball.get_ymax() >= XMAX {
-                ball.ymov *= (-1.0)
+            if ball.get_ymin() <= YMIN || ball.get_ymax() >= YMAX {
+                ball.ymov *= -1.0
+            }
+
+            // with players
+
+            if (
+                ball.xpos == player1.xpos
+                && ball.ypos >= player1.get_ymin()
+                && ball.ypos <= player1.get_ymax()
+            ) || (
+                ball.xpos == player2.xpos
+                && ball.ypos >= player2.get_ymin()
+                && ball.ypos <= player2.get_ymax()
+            ) {
+                ball.xmov *= -1.0
+            }
+
+            // avoid overflows
+
+            if ball.yf32 > YMAX as f32 {
+                ball.yf32 = YMAX as f32 - 1.0;
+                ball.ypos = YMAX - 1;
             }
         }
 
@@ -196,13 +274,32 @@ fn main() -> CrosstermResult<()> {
 
         if move_things {
             field.clear();
+
+            if show_debug {
+                field.write(3, 2, &debugstr);
+            }
+
+            if show_help {
+                field.write(3, YMIN, format!(" speed={:1} [1-9] ", (ball_step * 10.0) as u8).as_str());
+                field.write(2, YMAX - 1, " a=up - z=down ");
+                field.write(XMAX - 17, YMAX - 1, " k=up - m=down ");
+                field.write(XMAX / 2 - 9, YMAX - 1, " space=start/reset ");
+            } else {
+                field.write(XMIN + 2, YMIN, " [h]elp ");
+            }
+
+            field.write(XMAX / 2 - 4, YMIN, format!(" {:02} ", score[0]).as_str());
+            field.write(XMAX / 2 + 2, YMIN, format!(" {:02} ", score[1]).as_str());
+
             field.draw_thing(&ball);
             field.draw_thing(&player1);
             field.draw_thing(&player2);
+
             tick_counter = 0;
         }
 
         // Paint Field to Canvas
+
         for i in 0..field.curr.len() {
             let x: u16 = i as u16 % XMAX;
             let y: u16 = i as u16 / XMAX;
@@ -217,6 +314,7 @@ fn main() -> CrosstermResult<()> {
         // Check if round is over and reset ball and count points
 
         if round_winner > 0 {
+            score[round_winner - 1] += 1;
             round_winner = 0;
             init_ball = false;
             ball = Thing::new(XMAX / 2, YMAX / 2, 1, b'O');
