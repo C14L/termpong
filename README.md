@@ -2,6 +2,8 @@
 
 A basic command line version of the Pong game in Rust.
 
+![termpong screenshot](screenshot.png)
+
 ## Build
 
 Build using Cargo:
